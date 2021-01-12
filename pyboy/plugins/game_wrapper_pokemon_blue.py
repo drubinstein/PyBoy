@@ -460,10 +460,11 @@ class Fitness:
     def description(self):
         return "Not implemented"
 
-    def __init__(self, game_wrapper: PyBoyGameWrapper):
+    def __init__(self, game_wrapper: PyBoyGameWrapper, starting_fitness: int = 10000):
         self.game_wrapper = game_wrapper
+        self.starting_fitness = starting_fitness
 
-    def fitness(self) -> int:
+    def fitness(self, num_ticks: int) -> int:
         raise NotImplementedError
 
     def game_over(self) -> bool:
@@ -473,12 +474,28 @@ class Fitness:
         raise NotImplementedError
 
 
+class EmptyFitness:
+    @property
+    def description(self):
+        return "Don't do anything"
+
+    def fitness(self, num_ticks: int) -> int:
+        return 0
+
+    def game_over(self) -> bool:
+        return False
+
+    def reset(self):
+        pass
+
+
 class GameWrapperPokemonBlue(PyBoyGameWrapper):
-    cartridge_title = "POKEMON BLUE"
+    cartridge_title = "POKEMON RED"
 
     def __init__(self, *args, **kwargs):
         self.shape = (20, 18)
-        self.fitness = 0
+        self.fitness = 1
+        self.num_ticks = 0
         self.fitness_impl = Fitness(self)
 
         super().__init__(
@@ -516,15 +533,17 @@ class GameWrapperPokemonBlue(PyBoyGameWrapper):
         """
         PyBoyGameWrapper.reset_game(self, timer_div=timer_div)
         self.fitness_impl.reset()
+        self.num_ticks = 0
 
         self._set_timer_div(timer_div)
 
     def post_tick(self):
+        self.num_ticks += 1
         if self.game_has_started:
-            self.fitness = self.fitness_impl.fitness()
+            self.fitness = self.fitness_impl.fitness(self.num_ticks)
 
     def game_over(self) -> bool:
-        return self.fitness_impl.game_over()
+        return self.fitness <= 0 or self.fitness_impl.game_over()
 
     def set_fitness_impl(self, fitness_impl: Fitness):
         self.fitness_impl = fitness_impl
@@ -546,7 +565,7 @@ class Strict(Fitness):
     def description(self) -> str:
         return "Follow all required objectives in order."
 
-    def fitness(self) -> int:
+    def fitness(self, num_ticks: int) -> int:
         options = InGameOptions.get(self.game_wrapper)
         events = EventFlags.get(self.game_wrapper)
         badges = Badges.get(self.game_wrapper)
@@ -565,24 +584,28 @@ class Strict(Fitness):
         #       Jrose11's Abra run which took 17 hours 18 minutes
         badges_bitset = (
             f"{badges.earth:01b}"
-            f"{badges.as_bits[1:-1]}"  # Middle six badges any order
+            f"{badges.as_bits[1:6]}"  # Middle six badges any order
             f"{badges.boulder:01b}"
         )
-        started_game_bitset = (
+        bitset = (
             f"{int(events.have_oaks_parcel == 1):01b}"
             f"{events.selected_first_pokemon:01b}"
             f"{events.met_oak:01b}"
         )
+        """
         bitset = (
             f"{events.debug_new_game > 0:01b}"
             f"{options.battle_animation == BattleAnimation.OFF:01b}"
             f"{options.text_speed == TextSpeed.FAST:01b}"
         )
-        if events.debug_new_game:
-            bitset = started_game_bitset + bitset
+        """
         if events.have_oaks_parcel:
             bitset = badges_bitset + bitset
-        return int(bitset, 2)
+        return (
+            int(bitset, 2) * self.starting_fitness // 4
+            + self.starting_fitness
+            - num_ticks
+        )
 
     def game_over(self) -> bool:
         # Game over when we hit 24 hours or oak's parcel. Incrementally relax the second condition
@@ -603,13 +626,19 @@ class OptimalOptions(Fitness):
     def description(self) -> str:
         return "Find options for fastest run"
 
-    def fitness(self) -> int:
+    def fitness(self, num_ticks: int) -> int:
         options = InGameOptions.get(self.game_wrapper)
         bitset = (
             f"{options.battle_animation == BattleAnimation.OFF:01b}"
             f"{options.text_speed == TextSpeed.FAST:01b}"
         )
-        return int(bitset, 2)
+        return (
+            (int(bitset, 2) - EventFlags.get(self.game_wrapper).debug_new_game * 4)
+            * self.starting_fitness
+            // 8
+            + self.starting_fitness
+            - num_ticks
+        )
 
     def game_over(self) -> bool:
         options = InGameOptions.get(self.game_wrapper)
@@ -634,11 +663,48 @@ class FindAllMaps(Fitness):
     def description(self) -> str:
         return "Go through all warp points"
 
-    def fitness(self) -> int:
+    def fitness(self, num_ticks: int) -> int:
+        # map = Map.get(self.game_wrapper)
+        self.map_cache[Map.get(self.game_wrapper).map_number] = 1
+        # self.map_cache[(map.map_number, map.y, map.x)] = 1
+        return (
+            len(self.map_cache) * self.starting_fitness // 4
+            + self.starting_fitness
+            - num_ticks
+        )
+
+    def game_over(self) -> bool:
+        # According to https://bulbapedia.bulbagarden.net/wiki/List_of_locations_by_index_number_(Generation_I)
+        # there are 256-13 Invalid - 1 ?? - 17 unused = 225 unique map locations (not including unused rock tunnel)
+        return (
+            # len(self.map_cache) == 225
+            # or
+            GameTime.get(self.game_wrapper).total_seconds
+            > 3 * GameTime.MINUTES
+        )
+
+    def reset(self):
+        self.map_cache = {}
+
+
+class FindAllTiles(Fitness):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # A cache of visited maps
+        self.map_cache = {}
+
+    @property
+    def description(self) -> str:
+        return "Find all the moveable places in the game"
+
+    def fitness(self, num_ticks: int) -> int:
         map = Map.get(self.game_wrapper)
-        # self.map_cache[Map.get(self.game_wrapper).map_number] = 1
         self.map_cache[(map.map_number, map.y, map.x)] = 1
-        return len(self.map_cache)
+        return (
+            len(self.map_cache) * self.starting_fitness // 10
+            + self.starting_fitness
+            - num_ticks
+        )
 
     def game_over(self) -> bool:
         # According to https://bulbapedia.bulbagarden.net/wiki/List_of_locations_by_index_number_(Generation_I)
@@ -658,18 +724,21 @@ class RandomizeOnReset(Fitness):
     def __init__(self, fitness_impls: List[Fitness], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fitness_impls = fitness_impls
-        self.current_fitness_impl = random.randint(len(self.fitness_impls))
+        self.randomize()
 
     @property
     def description(self) -> str:
         return f"Random! Currently {self.fitness_impls[self.current_fitness_impl].description}"
 
-    def fitness(self) -> int:
-        return self.fitness_impls[self.current_fitness_impl].fitness()
+    def fitness(self, num_ticks: int) -> int:
+        return self.fitness_impls[self.current_fitness_impl].fitness(num_ticks)
 
     def game_over(self) -> bool:
         return self.fitness_impls[self.current_fitness_impl].game_over()
 
     def reset(self):
-        self.current_fitness_impl.reset()
-        self.current_fitness_impl = random.randint(len(self.fitness_impls))
+        self.fitness_impls[self.current_fitness_impl].reset()
+        self.randomize()
+
+    def randomize(self):
+        self.current_fitness_impl = random.randrange(len(self.fitness_impls))

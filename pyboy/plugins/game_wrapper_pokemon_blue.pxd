@@ -8,10 +8,15 @@ cdef int ROWS, COLS
 
 cdef class Fitness:
     cdef public GameWrapperPokemonBlue game_wrapper
+    cdef public int starting_fitness
 
 cdef class GameWrapperPokemonBlue(PyBoyGameWrapper):
     cdef public int fitness
     cdef public Fitness fitness_impl
+    cdef public int num_ticks
+
+cdef class EmptyFitness(Fitness):
+    pass
 
 cdef class RandomizeOnReset(Fitness):
     cdef public list fitness_impls
