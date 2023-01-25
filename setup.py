@@ -176,10 +176,10 @@ if CYTHON and "clean" not in sys.argv:
         [*cythonize_files], # This runs even if build_ext isn't invoked...
         nthreads=thread_count,
         annotate=False,
-        gdb_debug=False,
+        gdb_debug=bool(DEBUG),
         language_level=3,
         compiler_directives={
-            "boundscheck": False,
+            "boundscheck": bool(DEBUG),
             "cdivision": True,
             "cdivision_warnings": False,
             "infer_types": True,

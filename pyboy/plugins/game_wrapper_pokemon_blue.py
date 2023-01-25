@@ -477,14 +477,14 @@ class GameWrapperPokemonBlue(PyBoyGameWrapper):
     cartridge_title = "POKEMON BLUE"
 
     def __init__(self, *args, **kwargs):
-        self.shape = (20, 18)
+        # self.shape = (20, 18)
         self.fitness = 0
         self.fitness_impl = Fitness(self)
 
         super().__init__(
             *args,
-            game_area_section=(0, 0) + self.shape,
-            game_area_wrap_around=True,
+            # game_area_section=(0, 0) + self.shape,
+            # game_area_wrap_around=True,
             **kwargs,
         )
 
@@ -540,6 +540,24 @@ class GameWrapperPokemonBlue(PyBoyGameWrapper):
             f"\tGame Time: {GameTime.get(self)}"
         )
 
+class DoNothing(Fitness):
+    @property
+    def description(self):
+        return "A no-op fitness"
+
+    def __init__(self, game_wrapper: PyBoyGameWrapper):
+        self.game_wrapper = game_wrapper
+
+    def fitness(self) -> int:
+        return 0
+
+    def game_over(self) -> bool:
+        return False
+
+    def reset(self):
+        pass
+        
+    
 
 class Strict(Fitness):
     @property
@@ -565,7 +583,7 @@ class Strict(Fitness):
         #       Jrose11's Abra run which took 17 hours 18 minutes
         badges_bitset = (
             f"{badges.earth:01b}"
-            f"{badges.as_bits[1:-1]}"  # Middle six badges any order
+            f"{badges.as_bits[1:len(badges.as_bits)-1]}"  # Middle six badges any order
             f"{badges.boulder:01b}"
         )
         started_game_bitset = (

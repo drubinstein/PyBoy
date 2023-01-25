@@ -26,3 +26,6 @@ cdef class OptimalOptions(Fitness):
 cdef class FindAllMaps(Fitness):
     cdef public dict map_cache
 
+cdef class DoNothing(Fitness):
+    pass
+
